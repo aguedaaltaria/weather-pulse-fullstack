@@ -1,0 +1,20 @@
+# Python & uv
+backend/.venv/
+backend/__pycache__/
+backend/*.pyc
+backend/weather_records.db
+
+# Environment secrets
+.env
+backend/.env
+*.env
+!.env.example
+!backend/.env.example
+
+# Node & Vite
+frontend/node_modules/
+frontend/dist/
+
+# Editor & OS
+.vscode/
+.DS_Store
