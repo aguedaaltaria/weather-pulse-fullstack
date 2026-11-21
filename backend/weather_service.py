@@ -10,33 +10,33 @@ OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 
-REQUEST_TIMEOUT = 10
+REQUEST_TIMEOUT = 25
 HEADERS = {"User-Agent": "WeatherPulseStudio/1.0"}
 
-# Map numeric WMO weather codes to readable text and icon names
-# Mapear códigos numéricos WMO a texto legible y nombres de iconos
+# Map numeric WMO weather codes to English, Spanish, and icon names
+# Mapear códigos numéricos WMO a inglés, español y nombres de iconos
 WEATHER_CODES = {
-    0: ("Clear sky", "clear"),
-    1: ("Mainly clear", "partly-cloudy"),
-    2: ("Partly cloudy", "partly-cloudy"),
-    3: ("Overcast", "cloudy"),
-    45: ("Foggy", "fog"),
-    48: ("Rime fog", "fog"),
-    51: ("Light drizzle", "drizzle"),
-    53: ("Moderate drizzle", "drizzle"),
-    55: ("Dense drizzle", "drizzle"),
-    61: ("Slight rain", "rain"),
-    63: ("Moderate rain", "rain"),
-    65: ("Heavy rain", "rain"),
-    71: ("Slight snow", "snow"),
-    73: ("Moderate snow", "snow"),
-    75: ("Heavy snow", "snow"),
-    80: ("Rain showers", "rain"),
-    81: ("Moderate showers", "rain"),
-    82: ("Heavy showers", "storm"),
-    95: ("Thunderstorm", "storm"),
-    96: ("Thunderstorm with hail", "storm"),
-    99: ("Severe thunderstorm", "storm"),
+    0: ("Clear sky", "Cielo despejado", "clear"),
+    1: ("Mainly clear", "Mayormente despejado", "partly-cloudy"),
+    2: ("Partly cloudy", "Parcialmente nublado", "partly-cloudy"),
+    3: ("Overcast", "Nublado", "cloudy"),
+    45: ("Foggy", "Con niebla", "fog"),
+    48: ("Rime fog", "Niebla con escarcha", "fog"),
+    51: ("Light drizzle", "Llovizna ligera", "drizzle"),
+    53: ("Moderate drizzle", "Llovizna moderada", "drizzle"),
+    55: ("Dense drizzle", "Llovizna intensa", "drizzle"),
+    61: ("Slight rain", "Lluvia ligera", "rain"),
+    63: ("Moderate rain", "Lluvia moderada", "rain"),
+    65: ("Heavy rain", "Lluvia fuerte", "rain"),
+    71: ("Slight snow", "Nieve ligera", "snow"),
+    73: ("Moderate snow", "Nieve moderada", "snow"),
+    75: ("Heavy snow", "Nieve fuerte", "snow"),
+    80: ("Rain showers", "Chubascos ligeros", "rain"),
+    81: ("Moderate showers", "Chubascos moderados", "rain"),
+    82: ("Heavy showers", "Chubascos fuertes", "storm"),
+    95: ("Thunderstorm", "Tormenta eléctrica", "storm"),
+    96: ("Thunderstorm with hail", "Tormenta con granizo", "storm"),
+    99: ("Severe thunderstorm", "Tormenta severa", "storm"),
 }
 
 
@@ -49,11 +49,15 @@ class WeatherServiceError(Exception):
         self.status_code = status_code
 
 
-def describe_weather_code(code):
+def describe_weather_code(code, language="en"):
     """
-    Convert a WMO weather code into description and icon / Convertir código WMO a descripción e icono.
+    Convert a WMO weather code into description (EN/ES) and icon.
+    Convertir código WMO a descripción (EN/ES) e icono.
     """
-    description, icon = WEATHER_CODES.get(code, ("Unknown conditions", "cloudy"))
+    en_text, es_text, icon = WEATHER_CODES.get(
+        code, ("Unknown conditions", "Condiciones desconocidas", "cloudy")
+    )
+    description = es_text if language == "es" else en_text
     return {"description": description, "icon": icon}
 
 
@@ -131,13 +135,14 @@ def resolve_location(location_query):
                 "latitude": float(match["lat"]),
                 "longitude": float(match["lon"]),
             }
-    except requests.RequestException:
+    except requests.RequestException as error:
+        print("Error de Nominatim:", error)
         raise WeatherServiceError("Unable to reach geocoding service.", 502)
 
     raise WeatherServiceError(f"Location '{location_query}' could not be found.", 404)
 
 
-def fetch_current_and_forecast(latitude, longitude):
+def fetch_current_and_forecast(latitude, longitude, language="en"):
     """
     Get current weather and 5-day forecast from Open-Meteo.
     Obtener clima actual y pronóstico de 5 días desde Open-Meteo.
@@ -154,18 +159,19 @@ def fetch_current_and_forecast(latitude, longitude):
         response = requests.get(OPEN_METEO_FORECAST_URL, params=params, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         data = response.json()
-    except requests.RequestException:
+    except requests.RequestException as error:
+        print("Error de Open-Meteo:", error)
         raise WeatherServiceError("Failed to fetch weather forecast.", 502)
 
     current = data.get("current", {})
-    current_info = describe_weather_code(current.get("weather_code"))
+    current_info = describe_weather_code(current.get("weather_code"), language)
     daily = data.get("daily", {})
     dates = daily.get("time", [])
 
     # Skip index 0 (today) to build the next 5 days / Saltar índice 0 (hoy) para armar los próximos 5 días
     forecast_5_days = []
     for i in range(1, min(len(dates), 6)):
-        day_info = describe_weather_code(daily["weather_code"][i])
+        day_info = describe_weather_code(daily["weather_code"][i], language)
         forecast_5_days.append({
             "date": dates[i],
             "temperature_max": daily["temperature_2m_max"][i],
@@ -208,7 +214,8 @@ def _query_daily_range(url, latitude, longitude, start_date, end_date):
         response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         daily = response.json().get("daily", {})
-    except requests.RequestException:
+    except requests.RequestException as error:
+        print("Error de Open-Meteo (rango de fechas):", error)
         raise WeatherServiceError("Failed to fetch date-range temperatures.", 502)
 
     dates = daily.get("time", [])
